@@ -45,18 +45,18 @@ def woocommerce_webhook():
         iccid_match = re.search(r'\d{18,20}', full_dump)
         if iccid_match: iccid = iccid_match.group(0)
             
-        # חיפוש קוד הפעלה נקי (מתחיל ב-K2 ומכיל תווים רלוונטיים בלבד)
+        # חיפוש קוד הפעלה נקי (K2-...)
         code = ""
         code_match = re.search(r'K2-[A-Z0-9-]+', full_dump)
         if code_match: code = code_match.group(0)
 
-        # --- בניית המלל הסופי ---
+        # --- בניית המלל הסופי ללא "לחיצה ארוכה להעתקה" ---
         lpa_part = f"LPA:1$smdp.io${code}" if code else ""
         
         msg = f"היי {customer_name} 👋\n\n"
         msg += f"תודה על הזמנתך ב- *e-go* 🙏🏼\n"
         msg += f"מספר הזמנתך: {order_id}\n\n"
-        msg += f"מס' ה-ICCID שלך (לחיצה ארוכה להעתקה):\n"
+        msg += f"מס' ה-ICCID שלך:\n" # הורדתי את המשפט על ההעתקה
         msg += f"{iccid}\n\n"
         msg += "מס' זה ישמש אותך לבדיקת יתרת החבילה וטעינת חבילה נוספת- \n"
         msg += "https://e-go.co.il/check-package-details/\n\n"
