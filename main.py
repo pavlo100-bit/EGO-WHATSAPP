@@ -1,12 +1,13 @@
 import os
 import re
 import requests
+import json
 import logging
 from flask import Flask, request
 
 app = Flask(__name__)
 
-# הגדרות Green API של e-go
+# הגדרות Green API - e-go
 GREEN_API_ID = "7103540645"
 GREEN_API_TOKEN = "22e83562ef1e46588d0d393232ed1ad441a8e941990646e09a"
 SEND_MSG_URL = f"https://7103.api.greenapi.com/waInstance{GREEN_API_ID}/sendMessage/{GREEN_API_TOKEN}"
@@ -16,60 +17,87 @@ logging.basicConfig(level=logging.INFO)
 def send_whatsapp(phone, text):
     try:
         payload = {"chatId": phone + "@c.us", "message": text}
-        requests.post(SEND_MSG_URL, json=payload, timeout=10)
-        logging.info(f"Message sent to {phone}")
+        requests.post(SEND_MSG_URL, json=payload, timeout=15)
+        logging.info(f"Message sent successfully to {phone}")
     except Exception as e:
-        logging.error(f"Error sending message: {e}")
+        logging.error(f"WhatsApp Error: {e}")
 
 @app.route('/webhook', methods=['POST', 'GET'])
 def woocommerce_webhook():
-    # בדיקת תקינות השרת
-    if request.method == "GET": 
-        return "e-go Railway System is Online", 200
+    if request.method == "GET": return "e-go Railway System is Online", 200
     
     data = request.get_json(silent=True)
-    if not data or data.get("status") != "completed": 
-        return "OK", 200
+    if not data or data.get("status") != "completed": return "OK", 200
 
     try:
         order_id = str(data.get("id"))
-        customer_name = data.get("billing", {}).get("first_name", "לקוח")
+        customer_name = data.get("billing", {}).get("first_name", "לקוח/ה")
         phone = data.get("billing", {}).get("phone", "").replace(" ", "").replace("-", "")
         
-        # תיקון פורמט טלפון לישראלי
-        if phone.startswith("0"): 
-            phone = "972" + phone[1:]
-        if not phone.startswith("972"): 
-            phone = "972" + phone
+        if phone.startswith("0"): phone = "972" + phone[1:]
+        if not phone.startswith("972"): phone = "972" + phone
 
-        # חילוץ ICCID וקוד LPA מההזמנה
-        full_text = str(data)
-        iccid_match = re.search(r'\d{18,20}', full_text)
-        iccid = iccid_match.group(0) if iccid_match else "נשלח במייל"
+        # --- חילוץ ICCID וקוד LPA ---
+        iccid = "נשלח במייל"
+        code = ""
+        full_dump = json.dumps(data)
         
-        code_match = re.search(r'K2-[A-Z0-9-]+', full_text)
-        code = code_match.group(0) if code_match else ""
+        all_meta = data.get("meta_data", [])
+        for item in data.get("line_items", []):
+            all_meta.extend(item.get("meta_data", []))
+
+        for meta in all_meta:
+            val = str(meta.get("value", ""))
+            if len(val) >= 18 and val.isdigit(): iccid = val
+            if "K2-" in val: code = val
+
+        if iccid == "נשלח במייל":
+            match = re.search(r'\d{18,20}', full_dump)
+            if match: iccid = match.group(0)
+        if not code:
+            match = re.search(r'K2-[A-Z0-9-]+', full_dump)
+            if match: code = match.group(0)
+
+        # --- בניית המלל ללא ה-backticks סביב ה-ICCID ---
+        lpa_link = f"LPA:1$smdp.io${code}" if code else ""
         
-        # בניית ההודעה ללקוח
-        msg = f"היי {customer_name} 👋\nתודה שרכשת ב- *e-go*! מספר הזמנה: {order_id}\n\n"
-        msg += f"מס' ICCID שלך:\n`{iccid}`\n\n"
+        msg = f"היי {customer_name} 👋\n\n"
+        msg += f"תודה על הזמנתך ב- *e-go* 🙏🏼\n"
+        msg += f"מספר הזמנתך: {order_id}\n\n"
+        msg += f"מס' ה-ICCID שלך (לחיצה ארוכה להעתקה):\n"
+        msg += f"{iccid}\n\n"
+        msg += "מס' זה ישמש אותך לבדיקת יתרת החבילה וטעינת חבילה נוספת- \n"
+        msg += "https://e-go.co.il/check-package-details/\n\n"
+        msg += "🚀 *חדש! התקנה מהירה בלחיצה:*\n"
+        msg += "לחץ על הלינק לפי סוג המכשיר שברשותך וה-eSIM יותקן אוטומטית במכשירך:\n\n"
         
         if code:
-            lpa = f"LPA:1$smdp.io${code}"
-            msg += "🚀 *התקנה מהירה בלחיצה:*\n"
-            msg += f"אייפון: https://esimsetup.apple.com/esim_qrcode_provisioning?carddata={lpa}\n"
-            msg += f"אנדרואיד: https://esimsetup.android.com/esim_qrcode_provisioning?carddata={lpa}\n\n"
+            msg += "📱 *למשתמשי Apple (אייפון):*\n"
+            msg += f"https://esimsetup.apple.com/esim_qrcode_provisioning?carddata={lpa_link}\n\n"
+            msg += "📱 *למשתמשי Android:*\n"
+            msg += f"https://esimsetup.android.com/esim_qrcode_provisioning?carddata={lpa_link}\n\n"
         
-        msg += "בדיקת יתרה: https://e-go.co.il/check-package-details/\n\nנסיעה טובה! 🌴"
-        
+        msg += "---\n📍 *מידע חשוב:*\n\n"
+        msg += "⚠️ *חשוב מאוד:* במהלך ההתקנה נא לא לבצע הסרת חבילה היות ולא ניתן לשחזר את הברקוד.\n\n"
+        msg += "📍 להתקנת ה-eSIM במכשירך, יש לסרוק את הברקוד שנשלח במייל (לבדוק במכירות)\n"
+        msg += "📍 יש לבצע את ההתקנה בארץ כאשר מחוברים לאינטרנט\n\n"
+        msg += "🍎 *מדריכי Apple (אייפון):*\n"
+        msg += "מדריך התקנה: https://did.li/ego-iphone-install\n"
+        msg += "מדריך הפעלה בחו\"ל: https://did.li/ego-iphone-use\n\n"
+        msg += "🤖 *מדריכי Android:*\n"
+        msg += "מדריך התקנה: https://did.li/ego-android-install\n"
+        msg += "מדריך הפעלה בחו\"ל: https://did.li/ego-android-use\n\n"
+        msg += "📍 מדריך מלא באתר: https://e-go.co.il/user_manual/\n\n"
+        msg += "❓ בכל שאלה ניתן לפנות לווטסאפ לתמיכה טכנית בין השעות 08:00-22:00\n\n"
+        msg += "נסיעה טובה וחופשה מהנה🌴\nצוות e-go"
+
         send_whatsapp(phone, msg)
-        return "Success", 200
-        
+        return "OK", 200
+
     except Exception as e:
-        logging.error(f"Error processing order: {e}")
-        return "Error", 500
+        logging.error(f"Error: {e}")
+        return "OK", 200
 
 if __name__ == "__main__":
-    # הגדרת פורט אוטומטית עבור Railway
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
