@@ -18,13 +18,13 @@ def send_whatsapp(phone, text):
     try:
         payload = {"chatId": phone + "@c.us", "message": text}
         requests.post(SEND_MSG_URL, json=payload, timeout=15)
-        logging.info(f"Message sent successfully to {phone}")
+        logging.info(f"Message sent to {phone}")
     except Exception as e:
         logging.error(f"WhatsApp Error: {e}")
 
 @app.route('/webhook', methods=['POST', 'GET'])
 def woocommerce_webhook():
-    if request.method == "GET": return "e-go Railway System is Online", 200
+    if request.method == "GET": return "e-go System Online", 200
     
     data = request.get_json(silent=True)
     if not data or data.get("status") != "completed": return "OK", 200
@@ -37,29 +37,21 @@ def woocommerce_webhook():
         if phone.startswith("0"): phone = "972" + phone[1:]
         if not phone.startswith("972"): phone = "972" + phone
 
-        # --- חילוץ ICCID וקוד LPA ---
-        iccid = "נשלח במייל"
-        code = ""
+        # --- חילוץ נתונים חכם ---
         full_dump = json.dumps(data)
         
-        all_meta = data.get("meta_data", [])
-        for item in data.get("line_items", []):
-            all_meta.extend(item.get("meta_data", []))
+        # חיפוש ICCID נקי
+        iccid = "נשלח במייל"
+        iccid_match = re.search(r'\d{18,20}', full_dump)
+        if iccid_match: iccid = iccid_match.group(0)
+            
+        # חיפוש קוד הפעלה נקי (מתחיל ב-K2 ומכיל תווים רלוונטיים בלבד)
+        code = ""
+        code_match = re.search(r'K2-[A-Z0-9-]+', full_dump)
+        if code_match: code = code_match.group(0)
 
-        for meta in all_meta:
-            val = str(meta.get("value", ""))
-            if len(val) >= 18 and val.isdigit(): iccid = val
-            if "K2-" in val: code = val
-
-        if iccid == "נשלח במייל":
-            match = re.search(r'\d{18,20}', full_dump)
-            if match: iccid = match.group(0)
-        if not code:
-            match = re.search(r'K2-[A-Z0-9-]+', full_dump)
-            if match: code = match.group(0)
-
-        # --- בניית המלל ללא ה-backticks סביב ה-ICCID ---
-        lpa_link = f"LPA:1$smdp.io${code}" if code else ""
+        # --- בניית המלל הסופי ---
+        lpa_part = f"LPA:1$smdp.io${code}" if code else ""
         
         msg = f"היי {customer_name} 👋\n\n"
         msg += f"תודה על הזמנתך ב- *e-go* 🙏🏼\n"
@@ -68,14 +60,14 @@ def woocommerce_webhook():
         msg += f"{iccid}\n\n"
         msg += "מס' זה ישמש אותך לבדיקת יתרת החבילה וטעינת חבילה נוספת- \n"
         msg += "https://e-go.co.il/check-package-details/\n\n"
-        msg += "🚀 *חדש! התקנה מהירה בלחיצה:*\n"
-        msg += "לחץ על הלינק לפי סוג המכשיר שברשותך וה-eSIM יותקן אוטומטית במכשירך:\n\n"
         
         if code:
+            msg += "🚀 *חדש! התקנה מהירה בלחיצה:*\n"
+            msg += "לחץ על הלינק לפי סוג המכשיר שברשותך וה-eSIM יותקן אוטומטית במכשירך:\n\n"
             msg += "📱 *למשתמשי Apple (אייפון):*\n"
-            msg += f"https://esimsetup.apple.com/esim_qrcode_provisioning?carddata={lpa_link}\n\n"
+            msg += f"https://esimsetup.apple.com/esim_qrcode_provisioning?carddata={lpa_part}\n\n"
             msg += "📱 *למשתמשי Android:*\n"
-            msg += f"https://esimsetup.android.com/esim_qrcode_provisioning?carddata={lpa_link}\n\n"
+            msg += f"https://esimsetup.android.com/esim_qrcode_provisioning?carddata={lpa_part}\n\n"
         
         msg += "---\n📍 *מידע חשוב:*\n\n"
         msg += "⚠️ *חשוב מאוד:* במהלך ההתקנה נא לא לבצע הסרת חבילה היות ולא ניתן לשחזר את הברקוד.\n\n"
