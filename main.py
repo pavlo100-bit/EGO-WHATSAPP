@@ -32,31 +32,34 @@ def woocommerce_webhook():
     try:
         order_id = str(data.get("id"))
         customer_name = data.get("billing", {}).get("first_name", "לקוח/ה")
-        phone = data.get("billing", {}).get("phone", "").replace(" ", "").replace("-", "")
         
-        if phone.startswith("0"): phone = "972" + phone[1:]
-        if not phone.startswith("972"): phone = "972" + phone
+        # --- תיקון לוגיקת הטלפון ---
+        raw_phone = data.get("billing", {}).get("phone", "")
+        # השארת ספרות בלבד (מנקה +, רווחים, מקפים וכו')
+        phone = re.sub(r'\D', '', raw_phone)
+        
+        if phone.startswith("0"): 
+            phone = "972" + phone[1:]
+        elif not phone.startswith("972"): 
+            phone = "972" + phone
+        # --------------------------
 
-        # --- חילוץ נתונים חכם ---
         full_dump = json.dumps(data)
         
-        # חיפוש ICCID נקי
         iccid = "נשלח במייל"
         iccid_match = re.search(r'\d{18,20}', full_dump)
         if iccid_match: iccid = iccid_match.group(0)
             
-        # חיפוש קוד הפעלה נקי (K2-...)
         code = ""
         code_match = re.search(r'K2-[A-Z0-9-]+', full_dump)
         if code_match: code = code_match.group(0)
 
-        # --- בניית המלל הסופי ללא "לחיצה ארוכה להעתקה" ---
         lpa_part = f"LPA:1$smdp.io${code}" if code else ""
         
         msg = f"היי {customer_name} 👋\n\n"
         msg += f"תודה על הזמנתך ב- *e-go* 🙏🏼\n"
         msg += f"מספר הזמנתך: {order_id}\n\n"
-        msg += f"מס' ה-ICCID שלך:\n" # הורדתי את המשפט על ההעתקה
+        msg += f"מס' ה-ICCID שלך:\n"
         msg += f"{iccid}\n\n"
         msg += "מס' זה ישמש אותך לבדיקת יתרת החבילה וטעינת חבילה נוספת- \n"
         msg += "https://e-go.co.il/check-package-details/\n\n"
