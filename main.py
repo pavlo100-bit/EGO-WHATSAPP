@@ -3,6 +3,7 @@ import re
 import requests
 import json
 import logging
+import time # נוסף בשביל מנגנון הזמן
 from flask import Flask, request
 
 app = Flask(__name__)
@@ -13,6 +14,10 @@ GREEN_API_TOKEN = "22e83562ef1e46588d0d393232ed1ad441a8e941990646e09a"
 SEND_MSG_URL = f"https://7103.api.greenapi.com/waInstance{GREEN_API_ID}/sendMessage/{GREEN_API_TOKEN}"
 
 logging.basicConfig(level=logging.INFO)
+
+# --- מנגנון למניעת כפילויות ---
+# המילון הזה יזכור הזמנות שטופלו לאחרונה
+processed_orders = {}
 
 def send_whatsapp(phone, text):
     try:
@@ -29,20 +34,31 @@ def woocommerce_webhook():
     data = request.get_json(silent=True)
     if not data or data.get("status") != "completed": return "OK", 200
 
+    order_id = str(data.get("id"))
+    
+    # --- בדיקה: האם כבר שלחנו את ההזמנה הזו ב-5 הדקות האחרונות? ---
+    current_time = time.time()
+    if order_id in processed_orders:
+        last_time = processed_orders[order_id]
+        if current_time - last_time < 300: # 300 שניות = 5 דקות
+            logging.info(f"Duplicate trigger for order {order_id} ignored.")
+            return "OK", 200
+    
+    # שמירת הזמנה כ"בוצעה"
+    processed_orders[order_id] = current_time
+    # ---------------------------------------------------------
+
     try:
-        order_id = str(data.get("id"))
         customer_name = data.get("billing", {}).get("first_name", "לקוח/ה")
         
         # --- תיקון לוגיקת הטלפון ---
         raw_phone = data.get("billing", {}).get("phone", "")
-        # השארת ספרות בלבד (מנקה +, רווחים, מקפים וכו')
         phone = re.sub(r'\D', '', raw_phone)
         
         if phone.startswith("0"): 
             phone = "972" + phone[1:]
         elif not phone.startswith("972"): 
             phone = "972" + phone
-        # --------------------------
 
         full_dump = json.dumps(data)
         
