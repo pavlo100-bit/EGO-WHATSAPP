@@ -49,7 +49,7 @@ def woocommerce_webhook():
 
     order_id = str(data.get("id"))
     
-    # 1. מניעת כפילויות הרמטית (נבדק מול הדיסק ב-Railway)
+    # 1. מניעת כפילויות הרמטית (מול הדיסק ב-Railway)
     if is_order_processed(order_id):
         logging.info(f"Duplicate order {order_id} blocked.")
         return "OK", 200
@@ -65,7 +65,12 @@ def woocommerce_webhook():
         if phone.startswith("0"): phone = "972" + phone[1:]
         elif not phone.startswith("972"): phone = "972" + phone
 
-        # 3. בניית הודעה מפורטת לפי פריטים בהזמנה
+        # 3. איסוף כל ה-ICCID והקודים מכל ההזמנה (חיפוש גלובלי)
+        full_dump = json.dumps(data)
+        all_iccids = list(dict.fromkeys(re.findall(r'\d{18,20}', full_dump)))
+        all_codes = list(dict.fromkeys(re.findall(r'K2-[A-Z0-9-]+', full_dump)))
+
+        # 4. בניית ההודעה
         msg = f"היי {customer_name} 👋\n\n"
         msg += f"תודה על הזמנתך ב- *e-go* 🙏🏼\n"
         msg += f"מספר הזמנתך: {order_id}\n\n"
@@ -73,24 +78,19 @@ def woocommerce_webhook():
         msg += "--------------------------\n\n"
 
         items = data.get("line_items", [])
-        for item in items:
+        for i, item in enumerate(items):
             product_name = item.get("name", "חבילת eSIM")
-            item_data_str = json.dumps(item)
             
-            # חילוץ ICCID (18-20 ספרות) מהפריט הספציפי
-            iccid_match = re.search(r'\d{18,20}', item_data_str)
-            iccid = iccid_match.group(0) if iccid_match else "נשלח במייל"
-            
-            # חילוץ קוד הפעלה K2 מהפריט הספציפי
-            code_match = re.search(r'K2-[A-Z0-9-]+', item_data_str)
-            code = code_match.group(0) if code_match else ""
+            # התאמת ICCID וקוד לפי סדר הופעתם
+            current_iccid = all_iccids[i] if i < len(all_iccids) else "נשלח במייל"
+            current_code = all_codes[i] if i < len(all_codes) else ""
 
             msg += f"📦 *{product_name}:*\n"
-            msg += f"מס' ICCID: `{iccid}`\n"
+            msg += f"מס' ICCID: `{current_iccid}`\n"
             
-            if code:
-                lpa = f"LPA:1$smdp.io${code}"
-                msg += "🚀 *התקנה מהירה בלחיצה:*\n"
+            if current_code:
+                lpa = f"LPA:1$smdp.io${current_code}"
+                msg += "🚀 *חדש! התקנה מהירה בלחיצה:*\n"
                 msg += f"📱 Apple: https://esimsetup.apple.com/esim_qrcode_provisioning?carddata={lpa}\n"
                 msg += f"📱 Android: https://esimsetup.android.com/esim_qrcode_provisioning?carddata={lpa}\n"
             msg += "\n"
