@@ -3,7 +3,7 @@ import re
 import requests
 import json
 import logging
-import time # נוסף בשביל מנגנון הזמן
+import time
 from flask import Flask, request
 
 app = Flask(__name__)
@@ -15,9 +15,17 @@ SEND_MSG_URL = f"https://7103.api.greenapi.com/waInstance{GREEN_API_ID}/sendMess
 
 logging.basicConfig(level=logging.INFO)
 
-# --- מנגנון למניעת כפילויות ---
-# המילון הזה יזכור הזמנות שטופלו לאחרונה
-processed_orders = {}
+# --- פונקציות לניהול זיכרון קבוע בקובץ ---
+DB_FILE = "processed_orders.txt"
+
+def is_order_processed(order_id):
+    if not os.path.exists(DB_FILE): return False
+    with open(DB_FILE, "r") as f:
+        return order_id in f.read().splitlines()
+
+def mark_order_as_processed(order_id):
+    with open(DB_FILE, "a") as f:
+        f.write(f"{order_id}\n")
 
 def send_whatsapp(phone, text):
     try:
@@ -36,32 +44,24 @@ def woocommerce_webhook():
 
     order_id = str(data.get("id"))
     
-    # --- בדיקה: האם כבר שלחנו את ההזמנה הזו ב-5 הדקות האחרונות? ---
-    current_time = time.time()
-    if order_id in processed_orders:
-        last_time = processed_orders[order_id]
-        if current_time - last_time < 300: # 300 שניות = 5 דקות
-            logging.info(f"Duplicate trigger for order {order_id} ignored.")
-            return "OK", 200
+    # --- בדיקה בזיכרון הקבוע ---
+    if is_order_processed(order_id):
+        logging.info(f"Duplicate trigger for order {order_id} ignored (Found in DB).")
+        return "OK", 200
     
-    # שמירת הזמנה כ"בוצעה"
-    processed_orders[order_id] = current_time
-    # ---------------------------------------------------------
+    # סימון ההזמנה מיד כדי למנוע כניסה כפולה בשניות הקרובות
+    mark_order_as_processed(order_id)
+    # --------------------------
 
     try:
         customer_name = data.get("billing", {}).get("first_name", "לקוח/ה")
-        
-        # --- תיקון לוגיקת הטלפון ---
         raw_phone = data.get("billing", {}).get("phone", "")
         phone = re.sub(r'\D', '', raw_phone)
         
-        if phone.startswith("0"): 
-            phone = "972" + phone[1:]
-        elif not phone.startswith("972"): 
-            phone = "972" + phone
+        if phone.startswith("0"): phone = "972" + phone[1:]
+        elif not phone.startswith("972"): phone = "972" + phone
 
         full_dump = json.dumps(data)
-        
         iccid = "נשלח במייל"
         iccid_match = re.search(r'\d{18,20}', full_dump)
         if iccid_match: iccid = iccid_match.group(0)
