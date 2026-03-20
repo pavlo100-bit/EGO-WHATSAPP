@@ -3,7 +3,6 @@ import re
 import requests
 import json
 import logging
-import time
 from flask import Flask, request
 
 app = Flask(__name__)
@@ -15,17 +14,25 @@ SEND_MSG_URL = f"https://7103.api.greenapi.com/waInstance{GREEN_API_ID}/sendMess
 
 logging.basicConfig(level=logging.INFO)
 
-# --- פונקציות לניהול זיכרון קבוע בקובץ ---
-DB_FILE = "processed_orders.txt"
+# --- ניהול זיכרון קבוע ב-Volume ---
+# הקובץ נשמר בנתיב ה-Volume שהגדרת ב-Railway
+DB_FILE = "/app/data/processed_orders.txt"
 
 def is_order_processed(order_id):
     if not os.path.exists(DB_FILE): return False
-    with open(DB_FILE, "r") as f:
-        return order_id in f.read().splitlines()
+    try:
+        with open(DB_FILE, "r") as f:
+            return order_id in f.read().splitlines()
+    except: return False
 
 def mark_order_as_processed(order_id):
-    with open(DB_FILE, "a") as f:
-        f.write(f"{order_id}\n")
+    # יוצר את התיקייה אם היא לא קיימת בטעות
+    os.makedirs(os.path.dirname(DB_FILE), exist_ok=True)
+    try:
+        with open(DB_FILE, "a") as f:
+            f.write(f"{order_id}\n")
+    except Exception as e:
+        logging.error(f"Save Error: {e}")
 
 def send_whatsapp(phone, text):
     try:
@@ -37,55 +44,54 @@ def send_whatsapp(phone, text):
 
 @app.route('/webhook', methods=['POST', 'GET'])
 def woocommerce_webhook():
-    if request.method == "GET": return "e-go System Online", 200
+    if request.method == "GET": return "e-go Persistent System Online", 200
     
     data = request.get_json(silent=True)
     if not data or data.get("status") != "completed": return "OK", 200
 
     order_id = str(data.get("id"))
     
-    # --- בדיקה בזיכרון הקבוע ---
+    # 1. בדיקה: האם ההזמנה כבר נשלחה בעבר? (נבדק מול הדיסק הקשיח)
     if is_order_processed(order_id):
-        logging.info(f"Duplicate trigger for order {order_id} ignored (Found in DB).")
+        logging.info(f"Duplicate order {order_id} blocked by Permanent Volume.")
         return "OK", 200
     
-    # סימון ההזמנה מיד כדי למנוע כניסה כפולה בשניות הקרובות
+    # 2. סימון ההזמנה כ"בוצעה" בקובץ הקבוע
     mark_order_as_processed(order_id)
-    # --------------------------
 
     try:
         customer_name = data.get("billing", {}).get("first_name", "לקוח/ה")
+        
+        # 3. ניקוי טלפון (מטפל בפלוסים, רווחים ומקפים)
         raw_phone = data.get("billing", {}).get("phone", "")
         phone = re.sub(r'\D', '', raw_phone)
-        
         if phone.startswith("0"): phone = "972" + phone[1:]
         elif not phone.startswith("972"): phone = "972" + phone
 
+        # 4. חילוץ נתונים (ICCID וקוד הפעלה K2)
         full_dump = json.dumps(data)
-        iccid = "נשלח במייל"
         iccid_match = re.search(r'\d{18,20}', full_dump)
-        if iccid_match: iccid = iccid_match.group(0)
-            
-        code = ""
+        iccid = iccid_match.group(0) if iccid_match else "נשלח במייל"
+        
         code_match = re.search(r'K2-[A-Z0-9-]+', full_dump)
-        if code_match: code = code_match.group(0)
-
+        code = code_match.group(0) if code_match else ""
         lpa_part = f"LPA:1$smdp.io${code}" if code else ""
         
+        # 5. בניית ההודעה
         msg = f"היי {customer_name} 👋\n\n"
         msg += f"תודה על הזמנתך ב- *e-go* 🙏🏼\n"
         msg += f"מספר הזמנתך: {order_id}\n\n"
         msg += f"מס' ה-ICCID שלך:\n"
         msg += f"{iccid}\n\n"
-        msg += "מס' זה ישמש אותך לבדיקת יתרת החבילה וטעינת חבילה נוספת- \n"
+        msg += "בדיקת יתרה וטעינת חבילה נוספת:\n"
         msg += "https://e-go.co.il/check-package-details/\n\n"
         
         if code:
             msg += "🚀 *חדש! התקנה מהירה בלחיצה:*\n"
-            msg += "לחץ על הלינק לפי סוג המכשיר שברשותך וה-eSIM יותקן אוטומטית במכשירך:\n\n"
-            msg += "📱 *למשתמשי Apple (אייפון):*\n"
+            msg += "לחץ על הלינק וה-eSIM יותקן אוטומטית:\n\n"
+            msg += f"📱 *למשתמשי Apple (אייפון):*\n"
             msg += f"https://esimsetup.apple.com/esim_qrcode_provisioning?carddata={lpa_part}\n\n"
-            msg += "📱 *למשתמשי Android:*\n"
+            msg += f"📱 *למשתמשי Android:*\n"
             msg += f"https://esimsetup.android.com/esim_qrcode_provisioning?carddata={lpa_part}\n\n"
         
         msg += "---\n📍 *מידע חשוב:*\n\n"
@@ -99,7 +105,7 @@ def woocommerce_webhook():
         msg += "מדריך התקנה: https://did.li/ego-android-install\n"
         msg += "מדריך הפעלה בחו\"ל: https://did.li/ego-android-use\n\n"
         msg += "📍 מדריך מלא באתר: https://e-go.co.il/user_manual/\n\n"
-        msg += "❓ בכל שאלה ניתן לפנות לווטסאפ לתמיכה טכנית בין השעות 08:00-22:00\n\n"
+        msg += "❓ בכל שאלה ניתן לפנות לווטסאפ לתמיכה טכנית\n\n"
         msg += "נסיעה טובה וחופשה מהנה🌴\nצוות e-go"
 
         send_whatsapp(phone, msg)
