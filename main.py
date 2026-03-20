@@ -42,14 +42,14 @@ def send_whatsapp(phone, text):
 
 @app.route('/webhook', methods=['POST', 'GET'])
 def woocommerce_webhook():
-    if request.method == "GET": return "e-go Multi-Package System Online", 200
+    if request.method == "GET": return "e-go Multisim v4 Online", 200
     
     data = request.get_json(silent=True)
     if not data or data.get("status") != "completed": return "OK", 200
 
     order_id = str(data.get("id"))
     
-    # 1. מניעת כפילויות הרמטית (מול הדיסק ב-Railway)
+    # 1. מניעת כפילויות
     if is_order_processed(order_id):
         logging.info(f"Duplicate order {order_id} blocked.")
         return "OK", 200
@@ -58,51 +58,60 @@ def woocommerce_webhook():
 
     try:
         customer_name = data.get("billing", {}).get("first_name", "לקוח/ה")
-        
-        # 2. ניקוי מספר טלפון
         raw_phone = data.get("billing", {}).get("phone", "")
         phone = re.sub(r'\D', '', raw_phone)
         if phone.startswith("0"): phone = "972" + phone[1:]
         elif not phone.startswith("972"): phone = "972" + phone
 
-        # 3. איסוף כל ה-ICCID והקודים מכל ההזמנה (חיפוש גלובלי)
+        # 2. חילוץ כל ה-ICCID והקודים (סריקה גלובלית)
         full_dump = json.dumps(data)
         all_iccids = list(dict.fromkeys(re.findall(r'\d{18,20}', full_dump)))
         all_codes = list(dict.fromkeys(re.findall(r'K2-[A-Z0-9-]+', full_dump)))
 
-        # 4. בניית ההודעה
+        # 3. בניית שלד ההודעה (ההתחלה)
         msg = f"היי {customer_name} 👋\n\n"
         msg += f"תודה על הזמנתך ב- *e-go* 🙏🏼\n"
         msg += f"מספר הזמנתך: {order_id}\n\n"
-        msg += "להלן פרטי החבילות שהזמנת:\n"
-        msg += "--------------------------\n\n"
 
-        items = data.get("line_items", [])
-        for i, item in enumerate(items):
-            product_name = item.get("name", "חבילת eSIM")
+        # 4. לולאה על כל eSIM שנמצא בהזמנה
+        for i in range(len(all_iccids)):
+            iccid = all_iccids[i]
+            code = all_codes[i] if i < len(all_codes) else ""
             
-            # התאמת ICCID וקוד לפי סדר הופעתם
-            current_iccid = all_iccids[i] if i < len(all_iccids) else "נשלח במייל"
-            current_code = all_codes[i] if i < len(all_codes) else ""
+            # אם יש יותר מאחד, נוסיף כותרת קטנה כדי להפריד
+            if len(all_iccids) > 1:
+                msg += f"📦 *eSIM מספר {i+1}:*\n"
 
-            msg += f"📦 *{product_name}:*\n"
-            msg += f"מס' ICCID: `{current_iccid}`\n"
+            msg += f"מס' ה-ICCID שלך:\n{iccid}\n\n"
+            msg += "מס' זה ישמש אותך לבדיקת יתרת החבילה וטעינת חבילה נוספת- \n"
+            msg += "https://e-go.co.il/check-package-details/\n\n"
             
-            if current_code:
-                lpa = f"LPA:1$smdp.io${current_code}"
+            if code:
+                lpa = f"LPA:1$smdp.io${code}"
                 msg += "🚀 *חדש! התקנה מהירה בלחיצה:*\n"
-                msg += f"📱 Apple: https://esimsetup.apple.com/esim_qrcode_provisioning?carddata={lpa}\n"
-                msg += f"📱 Android: https://esimsetup.android.com/esim_qrcode_provisioning?carddata={lpa}\n"
-            msg += "\n"
+                msg += "לחץ על הלינק לפי סוג המכשיר שברשותך וה-eSIM יותקן אוטומטית במכשירך:\n\n"
+                msg += f"📱 *למשתמשי Apple (אייפון):*\n"
+                msg += f"https://esimsetup.apple.com/esim_qrcode_provisioning?carddata={lpa}\n\n"
+                msg += f"📱 *למשתמשי Android:*\n"
+                msg += f"https://esimsetup.android.com/esim_qrcode_provisioning?carddata={lpa}\n\n"
+            
+            if len(all_iccids) > 1:
+                msg += "--------------------------\n\n"
 
-        msg += "--------------------------\n"
-        msg += "📍 *בדיקת יתרה וטעינה:* https://e-go.co.il/check-package-details/\n\n"
-        msg += "⚠️ *חשוב:* נא לא להסיר את החבילה מהמכשיר לאחר ההתקנה.\n"
-        msg += "📍 יש לבצע את ההתקנה בארץ בחיבור ל-WiFi.\n\n"
-        msg += "🍎 מדריכי Apple: https://did.li/ego-iphone-install\n"
-        msg += "🤖 מדריכי Android: https://did.li/ego-android-install\n\n"
+        # 5. סגירת ההודעה (מידע חשוב ומדריכים - מופיע פעם אחת בסוף)
+        msg += "---\n📍 *מידע חשוב:*\n\n"
+        msg += "⚠️ *חשוב מאוד:* במהלך ההתקנה נא לא לבצע הסרת חבילה היות ולא ניתן לשחזר את הברקוד.\n\n"
+        msg += "📍 להתקנת ה-eSIM במכשירך, יש לסרוק את הברקוד שנשלח במייל (לבדוק במכירות)\n"
+        msg += "📍 יש לבצע את ההתקנה בארץ כאשר מחוברים לאינטרנט\n\n"
+        msg += "🍎 *מדריכי Apple (אייפון):*\n"
+        msg += "מדריך התקנה: https://did.li/ego-iphone-install\n"
+        msg += "מדריך הפעלה בחו\"ל: https://did.li/ego-iphone-use\n\n"
+        msg += "🤖 *מדריכי Android:*\n"
+        msg += "מדריך התקנה: https://did.li/ego-android-install\n"
+        msg += "מדריך הפעלה בחו\"ל: https://did.li/ego-android-use\n\n"
         msg += "📍 מדריך מלא באתר: https://e-go.co.il/user_manual/\n\n"
-        msg += "נסיעה טובה וחופשה מהנה! 🌴\nצוות e-go"
+        msg += "❓ בכל שאלה ניתן לפנות לווטסאפ לתמיכה טכנית בין השעות 08:00-22:00\n\n"
+        msg += "נסיעה טובה וחופשה מהנה🌴\nצוות e-go"
 
         send_whatsapp(phone, msg)
         return "OK", 200
