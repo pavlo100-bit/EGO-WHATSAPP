@@ -84,8 +84,7 @@ def woocommerce_webhook():
 
             msg += f"מס' ה-ICCID שלך:\n{iccid}\n\n"
             msg += "מס' זה ישמש אותך לבדיקת יתרת החבילה וטעינת חבילה נוספת- \n"
-            msg += "https://e-go.co.il/check-package-details/\n\n"
-            
+msg += f"https://e-go.co.il/check-package-details/?iccid={iccid}\n\n"            
             if code:
                 lpa = f"LPA:1$smdp.io${code}"
                 msg += "🚀 *חדש! התקנה מהירה בלחיצה:*\n"
