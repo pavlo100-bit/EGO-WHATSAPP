@@ -52,7 +52,7 @@ def send_whatsapp(phone, text):
 
 @app.route('/webhook', methods=['POST', 'GET'])
 def woocommerce_webhook():
-    if request.method == "GET": return "e-go Smart-Reload v9 Online", 200
+    if request.method == "GET": return "e-go Smart-Reload v10 Online", 200
     
     data = request.get_json(silent=True)
     if not data or data.get("status") != "completed": return "OK", 200
@@ -84,7 +84,9 @@ def woocommerce_webhook():
             code = all_codes[i] if i < len(all_codes) else ""
             
             product_name = items[i].get("name", "") if i < len(items) else "חבילת eSIM"
-            is_reload = "טעינה" in product_name or "top up" in product_name.lower()
+            
+            # בדיקה גמישה לטעינה: תופס "טעינה", "טעינת", "top up", "topup", "reload"
+            is_reload = any(word in product_name.lower() for word in ["טעינ", "top up", "topup", "reload"])
 
             smart_link = f"https://e-go.co.il/check-package-details/?iccid={iccid}"
 
