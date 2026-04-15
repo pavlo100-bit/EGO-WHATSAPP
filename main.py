@@ -8,11 +8,22 @@ app = Flask(__name__)
 
 # --- הגדרות ---
 ALLOWED_GROUP_ID = '120363425281087335@g.us'
+# שליפת המפתח מ-Railway
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 
+# בדיקת מפתח בלוגים
+if not GEMINI_API_KEY:
+    print("⚠️ אזהרה: לא נמצא מפתח GEMINI_API_KEY במשתני המערכת של Railway!")
+else:
+    print("✅ מפתח AI זוהה במערכת. מנסה להתחבר...")
+
 # הגדרת Gemini
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+try:
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    print("✅ החיבור ל-Gemini הוגדר בהצלחה.")
+except Exception as e:
+    print(f"❌ שגיאה בחיבור ל-Gemini: {e}")
 
 CATEGORY_ORDER = [
     'יבשים ושימורים', 'מוצרי חלב וביצים', 'בשר ודגים', 'פירות וירקות',
@@ -20,7 +31,7 @@ CATEGORY_ORDER = [
     'פארם והיגיינה', 'כללי/אחר'
 ]
 
-# --- יצירת בסיס הנתונים ---
+# --- בסיס נתונים ---
 def init_db():
     conn = sqlite3.connect('shopping.db')
     c = conn.cursor()
@@ -33,43 +44,37 @@ init_db()
 
 # --- לוגיקת AI לניתוח הודעה ---
 def analyze_message_with_ai(text):
-    prompt = f"""
-    You are a Hebrew shopping list assistant. Convert messages into a JSON list of products.
+    print(f"🔍 AI מנתח עכשיו: {text}")
     
-    STRICT RULES:
-    1. SPLIT: Every product must be a separate item in the list.
-    2. DELIMITERS: Split by commas (,), by the word 'וגם', and by the letter 'ו' when it connects two products (e.g. 'חלב ולחם' -> 'חלב', 'לחם').
-    3. CLEAN: Remove prefixes like 'תביא', 'רק', 'לי', 'תקנה', 'צריך', 'בבקשה'.
-    4. NO 'VAV': Never start a product name with 'ו'. 'ורסק' must become 'רסק'.
-    5. CATEGORIES: Choose ONLY from: {', '.join(CATEGORY_ORDER)}.
-    6. IF NO PRODUCTS: Return empty list [].
-
-    Example: "תביא עמק ולחם, רסק, בננה"
-    Output: [{"name": "עמק", "category": "מוצרי חלב וביצים"}, {"name": "לחם", "category": "מאפייה"}, {"name": "רסק", "category": "יבשים ושימורים"}, {"name": "בננה", "category": "פירות וירקות"}]
-
-    Text to analyze: "{text}"
+    prompt = f"""
+    You are a shopping list parser.
+    Convert the following Hebrew text into a clean JSON list of products.
+    RULES:
+    1. SPLIT: If multiple products are mentioned (separated by commas or 'and'), create separate items.
+    2. CLEAN: Remove words like 'תביא', 'רק', 'בבקשה'.
+    3. NO 'VAV': Remove 'ו' from the start of words (e.g., 'ורסק' -> 'רסק').
+    4. CATEGORIES: Only use these: {', '.join(CATEGORY_ORDER)}.
+    
+    Text: "{text}"
+    Output Format: [{"name": "product name", "category": "category"}]
     """
     
     try:
         response = model.generate_content(prompt)
-        json_text = response.text.replace('```json', '').replace('```', '').strip()
-        items = json.loads(json_text)
-        
-        # מנגנון הגנה נוסף בפייתון - אם ה-AI החזיר פריט אחד שעדיין מכיל פסיקים
-        final_items = []
-        for item in items:
-            if ',' in item['name']:
-                sub_names = item['name'].split(',')
-                for sn in sub_names:
-                    if sn.strip():
-                        final_items.append({"name": sn.strip(), "category": item['category']})
-            else:
-                final_items.append(item)
-        
-        return final_items
+        raw_text = response.text.strip()
+        # ניקוי פורמט JSON אם ה-AI מוסיף ```json
+        if "```json" in raw_text:
+            raw_text = raw_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in raw_text:
+            raw_text = raw_text.split("```")[1].split("```")[0].strip()
+            
+        print(f"🤖 תשובת ה-AI הגולמית: {raw_text}")
+        return json.loads(raw_text)
     except Exception as e:
-        print(f"❌ שגיאת AI או פיענוח: {e}")
-        return []
+        print(f"❌ ה-AI נכשל: {e}")
+        # גיבוי ידני בסיסי אם ה-AI לא זמין
+        parts = text.replace(' ו', ',').split(',')
+        return [{"name": p.strip(), "category": "כללי/אחר"} for p in parts if p.strip()]
 
 # --- נתיבי האתר ---
 
@@ -90,10 +95,10 @@ def index():
 def add_item():
     name = request.form.get('item_name')
     if name:
-        ai_results = analyze_message_with_ai(name)
+        items = analyze_message_with_ai(name)
         conn = sqlite3.connect('shopping.db')
         c = conn.cursor()
-        for item in ai_results:
+        for item in items:
             c.execute("INSERT INTO items (name, category, status) VALUES (?, ?, 0)", (item['name'], item['category']))
         conn.commit()
         conn.close()
@@ -107,20 +112,20 @@ def webhook():
             chat_id = data['senderData']['chatId']
             if chat_id == ALLOWED_GROUP_ID:
                 full_text = data['messageData']['textMessageData']['textMessage']
-                print(f"📩 הודעה גולמית: {full_text}")
+                print(f"📩 התקבלה הודעה בוואטסאפ: {full_text}")
                 
-                ai_results = analyze_message_with_ai(full_text)
-                print(f"🤖 תוצאת AI: {ai_results}")
+                items = analyze_message_with_ai(full_text)
                 
-                if ai_results:
+                if items:
                     conn = sqlite3.connect('shopping.db')
                     c = conn.cursor()
-                    for item in ai_results:
+                    for item in items:
                         c.execute("INSERT INTO items (name, category, status) VALUES (?, ?, 0)", (item['name'], item['category']))
                     conn.commit()
                     conn.close()
+                    print(f"✅ נוספו {len(items)} מוצרים.")
     except Exception as e:
-        print(f"❌ שגיאה: {e}")
+        print(f"❌ שגיאה בעיבוד Webhook: {e}")
     return jsonify({"status": "success"}), 200
 
 @app.route('/toggle/<int:item_id>')
