@@ -34,33 +34,41 @@ init_db()
 # --- לוגיקת AI לניתוח הודעה ---
 def analyze_message_with_ai(text):
     prompt = f"""
-    תפקידך להפוך הודעות וואטסאפ לרשימת קניות נקייה ומפוצלת.
+    You are a Hebrew shopping list assistant. Convert messages into a JSON list of products.
     
-    חוקים נוקשים לפיצול וניקוי:
-    1. פיצול לפי ו' החיבור: אם כתוב 'לחם וגבינה', פצל לשני מוצרים נפרדים: 'לחם' ו-'גבינה'.
-    2. פיצול לפי פסיקים: אם כתוב 'בננה,תפוח,חלב', פצל לשלושה מוצרים נפרדים.
-    3. ניקוי מילים מיותרות: הסר מילים כמו 'תביא לי', 'רק', 'תקנה', 'צריך', 'בבקשה', 'אל תשכח'.
-    4. הסרת ו' החיבור בתחילת מילה: אם אחרי הפיצול נשאר מוצר שמתחיל ב-ו' (כמו 'ורסק'), הסר את ה-ו' (שיהיה 'רסק').
-    5. סיווג: בחר רק מהקטגוריות האלו: {', '.join(CATEGORY_ORDER)}.
-    
-    דוגמאות לתוצאה רצויה:
-    - 'תביא לי רק עמק פרוס דק ולחם' -> [{{'name': 'עמק פרוס דק', 'category': 'מוצרי חלב וביצים'}}, {{'name': 'לחם', 'category': 'מאפייה'}}]
-    - 'ורסק עגבניות,תפוחים,בננות,ביצים' -> [{{'name': 'רסק עגבניות', 'category': 'יבשים ושימורים'}}, {{'name': 'תפוחים', 'category': 'פירות וירקות'}}, {{'name': 'בננות', 'category': 'פירות וירקות'}}, {{'name': 'ביצים', 'category': 'מוצרי חלב וביצים'}}]
-    - 'מתי אתה בא?' -> []
-    
-    החזר אך ורק פורמט JSON של רשימה:
-    [{{"name": "שם המוצר", "category": "הקטגוריה"}}]
+    STRICT RULES:
+    1. SPLIT: Every product must be a separate item in the list.
+    2. DELIMITERS: Split by commas (,), by the word 'וגם', and by the letter 'ו' when it connects two products (e.g. 'חלב ולחם' -> 'חלב', 'לחם').
+    3. CLEAN: Remove prefixes like 'תביא', 'רק', 'לי', 'תקנה', 'צריך', 'בבקשה'.
+    4. NO 'VAV': Never start a product name with 'ו'. 'ורסק' must become 'רסק'.
+    5. CATEGORIES: Choose ONLY from: {', '.join(CATEGORY_ORDER)}.
+    6. IF NO PRODUCTS: Return empty list [].
 
-    הטקסט לניתוח: "{text}"
+    Example: "תביא עמק ולחם, רסק, בננה"
+    Output: [{"name": "עמק", "category": "מוצרי חלב וביצים"}, {"name": "לחם", "category": "מאפייה"}, {"name": "רסק", "category": "יבשים ושימורים"}, {"name": "בננה", "category": "פירות וירקות"}]
+
+    Text to analyze: "{text}"
     """
     
     try:
         response = model.generate_content(prompt)
         json_text = response.text.replace('```json', '').replace('```', '').strip()
         items = json.loads(json_text)
-        return items
+        
+        # מנגנון הגנה נוסף בפייתון - אם ה-AI החזיר פריט אחד שעדיין מכיל פסיקים
+        final_items = []
+        for item in items:
+            if ',' in item['name']:
+                sub_names = item['name'].split(',')
+                for sn in sub_names:
+                    if sn.strip():
+                        final_items.append({"name": sn.strip(), "category": item['category']})
+            else:
+                final_items.append(item)
+        
+        return final_items
     except Exception as e:
-        print(f"❌ שגיאת AI: {e}")
+        print(f"❌ שגיאת AI או פיענוח: {e}")
         return []
 
 # --- נתיבי האתר ---
@@ -99,16 +107,16 @@ def webhook():
             chat_id = data['senderData']['chatId']
             if chat_id == ALLOWED_GROUP_ID:
                 full_text = data['messageData']['textMessageData']['textMessage']
+                print(f"📩 הודעה גולמית: {full_text}")
                 
-                # ה-AI מנתח ומפצל את כל המוצרים
                 ai_results = analyze_message_with_ai(full_text)
+                print(f"🤖 תוצאת AI: {ai_results}")
                 
                 if ai_results:
                     conn = sqlite3.connect('shopping.db')
                     c = conn.cursor()
                     for item in ai_results:
                         c.execute("INSERT INTO items (name, category, status) VALUES (?, ?, 0)", (item['name'], item['category']))
-                        print(f"✅ נוסף בהצלחה: {item['name']}")
                     conn.commit()
                     conn.close()
     except Exception as e:
