@@ -33,22 +33,25 @@ init_db()
 
 # --- לוגיקת AI לניתוח הודעה ---
 def analyze_message_with_ai(text):
+    # הנחיה משופרת וקשוחה יותר ל-AI
     prompt = f"""
-    אתה עוזר חכם לרשימת קניות משפחתית. תפקידך לנתח הודעות וואטסאפ בעברית.
-    1. זהה את כל המוצרים שמופיעים בהודעה.
-    2. עבור כל מוצר, נקה מילות פתיחה כמו 'תביא', 'תקנה', 'צריך', 'אל תשכח' והשאר רק את שם המוצר והפירוט (למשל: 'עמק 5% דל שומן').
-    3. סווג כל מוצר לאחת מהקטגוריות הבאות בלבד: {', '.join(CATEGORY_ORDER)}.
-    4. אם ההודעה היא שיחה רגילה או משפט שלא כולל מוצר לקנייה (למשל: 'מתי אתה חוזר', 'אל תשכח את הילד'), החזר רשימה ריקה.
+    אתה מומחה לניתוח רשימות קניות. תפקידך לחלץ מוצרים נטו מטקסט חופשי.
     
-    החזר את התוצאה בפורמט JSON בלבד כרשימה של אובייקטים:
+    חוקים נוקשים:
+    1. פצל מוצרים: אם מופיעים כמה מוצרים (למשל עם 'ו' החיבור או פסיק), פצל אותם לאובייקטים נפרדים.
+    2. ניקוי מוחלט: הסר מילים כמו 'תביא', 'רק', 'לי', 'בבקשה', 'אל תשכח', 'תקנה'. השאר רק את שם המוצר.
+    3. דוגמה: עבור המשפט 'תביא לי רק עמק פרוס דק ולחם', עליך להחזיר שני פריטים: 'עמק פרוס דק' ו-'לחם'.
+    4. סיווג: בחר רק מהקטגוריות האלו: {', '.join(CATEGORY_ORDER)}.
+    5. אם אין מוצר ברור בטקסט, החזר רשימה ריקה [].
+
+    החזר JSON בלבד במבנה:
     [{{"name": "שם המוצר", "category": "הקטגוריה"}}]
-    
+
     הטקסט לניתוח: "{text}"
     """
     
     try:
         response = model.generate_content(prompt)
-        # ניקוי הטקסט מה-AI כדי לוודא שזה JSON תקין
         json_text = response.text.replace('```json', '').replace('```', '').strip()
         items = json.loads(json_text)
         return items
@@ -75,7 +78,6 @@ def index():
 def add_item():
     name = request.form.get('item_name')
     if name:
-        # גם בהוספה מהאתר נשתמש ב-AI כדי לסווג נכון
         ai_results = analyze_message_with_ai(name)
         conn = sqlite3.connect('shopping.db')
         c = conn.cursor()
@@ -94,7 +96,6 @@ def webhook():
             if chat_id == ALLOWED_GROUP_ID:
                 full_text = data['messageData']['textMessageData']['textMessage']
                 
-                # ה-AI מנתח ומפרק את כל ההודעה (שורות או משפט ארוך)
                 ai_results = analyze_message_with_ai(full_text)
                 
                 if ai_results:
@@ -102,11 +103,9 @@ def webhook():
                     c = conn.cursor()
                     for item in ai_results:
                         c.execute("INSERT INTO items (name, category, status) VALUES (?, ?, 0)", (item['name'], item['category']))
-                        print(f"✅ AI הוסיף: {item['name']} לקטגוריית {item['category']}")
+                        print(f"✅ AI הוסיף: {item['name']} ({item['category']})")
                     conn.commit()
                     conn.close()
-                else:
-                    print(f"⏭️ AI החליט להתעלם מההודעה: {full_text}")
     except Exception as e:
         print(f"❌ שגיאה: {e}")
     return jsonify({"status": "success"}), 200
