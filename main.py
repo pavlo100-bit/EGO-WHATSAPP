@@ -6,24 +6,25 @@ import google.generativeai as genai
 
 app = Flask(__name__)
 
+# --- זיהוי גירסה בלוגים ---
+print("*****************************************")
+print("🚀 המערכת עלתה: גירסה 2.0 - פועל עם AI")
+print("*****************************************")
+
 # --- הגדרות ---
 ALLOWED_GROUP_ID = '120363425281087335@g.us'
-# שליפת המפתח מ-Railway
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 
-# בדיקת מפתח בלוגים
-if not GEMINI_API_KEY:
-    print("⚠️ אזהרה: לא נמצא מפתח GEMINI_API_KEY במשתני המערכת של Railway!")
-else:
-    print("✅ מפתח AI זוהה במערכת. מנסה להתחבר...")
-
 # הגדרת Gemini
-try:
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-1.5-flash')
-    print("✅ החיבור ל-Gemini הוגדר בהצלחה.")
-except Exception as e:
-    print(f"❌ שגיאה בחיבור ל-Gemini: {e}")
+if GEMINI_API_KEY:
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        print("✅ מפתח AI זוהה והתחבר בהצלחה")
+    except Exception as e:
+        print(f"❌ שגיאה בחיבור ל-Gemini: {e}")
+else:
+    print("⚠️ אזהרה: לא נמצא מפתח GEMINI_API_KEY ב-Variables!")
 
 CATEGORY_ORDER = [
     'יבשים ושימורים', 'מוצרי חלב וביצים', 'בשר ודגים', 'פירות וירקות',
@@ -31,7 +32,6 @@ CATEGORY_ORDER = [
     'פארם והיגיינה', 'כללי/אחר'
 ]
 
-# --- בסיס נתונים ---
 def init_db():
     conn = sqlite3.connect('shopping.db')
     c = conn.cursor()
@@ -42,41 +42,37 @@ def init_db():
 
 init_db()
 
-# --- לוגיקת AI לניתוח הודעה ---
 def analyze_message_with_ai(text):
-    print(f"🔍 AI מנתח עכשיו: {text}")
+    print(f"🔍 ניתוח הודעה: {text}")
     
     prompt = f"""
-    You are a shopping list parser.
-    Convert the following Hebrew text into a clean JSON list of products.
-    RULES:
-    1. SPLIT: If multiple products are mentioned (separated by commas or 'and'), create separate items.
-    2. CLEAN: Remove words like 'תביא', 'רק', 'בבקשה'.
-    3. NO 'VAV': Remove 'ו' from the start of words (e.g., 'ורסק' -> 'רסק').
-    4. CATEGORIES: Only use these: {', '.join(CATEGORY_ORDER)}.
+    אתה עוזר קניות חכם. תפקידך להחזיר רשימת JSON של מוצרים.
+    חוקים:
+    1. פצל מוצרים: אם כתוב 'חלב ולחם', אלו שני מוצרים נפרדים.
+    2. נקה מילים: הסר 'תביא', 'רק', 'בבקשה', 'אל תשכח'.
+    3. הסר ו' החיבור: 'ורסק' הופך ל-'רסק'.
+    4. קטגוריות מותרות: {', '.join(CATEGORY_ORDER)}.
     
-    Text: "{text}"
-    Output Format: [{"name": "product name", "category": "category"}]
+    טקסט: "{text}"
+    פורמט פלט: [{"name": "שם המוצר", "category": "קטגוריה"}]
     """
     
     try:
         response = model.generate_content(prompt)
         raw_text = response.text.strip()
-        # ניקוי פורמט JSON אם ה-AI מוסיף ```json
+        # ניקוי פורמט JSON
         if "```json" in raw_text:
             raw_text = raw_text.split("```json")[1].split("```")[0].strip()
         elif "```" in raw_text:
             raw_text = raw_text.split("```")[1].split("```")[0].strip()
             
-        print(f"🤖 תשובת ה-AI הגולמית: {raw_text}")
+        print(f"🤖 AI ענה: {raw_text}")
         return json.loads(raw_text)
     except Exception as e:
-        print(f"❌ ה-AI נכשל: {e}")
-        # גיבוי ידני בסיסי אם ה-AI לא זמין
+        print(f"❌ תקלה ב-AI: {e}")
+        # גיבוי ידני
         parts = text.replace(' ו', ',').split(',')
         return [{"name": p.strip(), "category": "כללי/אחר"} for p in parts if p.strip()]
-
-# --- נתיבי האתר ---
 
 @app.route('/')
 def index():
@@ -112,7 +108,7 @@ def webhook():
             chat_id = data['senderData']['chatId']
             if chat_id == ALLOWED_GROUP_ID:
                 full_text = data['messageData']['textMessageData']['textMessage']
-                print(f"📩 התקבלה הודעה בוואטסאפ: {full_text}")
+                print(f"📩 וואטסאפ: {full_text}")
                 
                 items = analyze_message_with_ai(full_text)
                 
@@ -123,9 +119,9 @@ def webhook():
                         c.execute("INSERT INTO items (name, category, status) VALUES (?, ?, 0)", (item['name'], item['category']))
                     conn.commit()
                     conn.close()
-                    print(f"✅ נוספו {len(items)} מוצרים.")
+                    print(f"✅ נוספו {len(items)} מוצרים")
     except Exception as e:
-        print(f"❌ שגיאה בעיבוד Webhook: {e}")
+        print(f"❌ שגיאה: {e}")
     return jsonify({"status": "success"}), 200
 
 @app.route('/toggle/<int:item_id>')
