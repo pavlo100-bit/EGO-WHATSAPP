@@ -6,25 +6,22 @@ import google.generativeai as genai
 
 app = Flask(__name__)
 
-# --- זיהוי גירסה בלוגים ---
-print("*****************************************")
-print("🚀 המערכת עלתה: גירסה 2.0 - פועל עם AI")
-print("*****************************************")
-
 # --- הגדרות ---
 ALLOWED_GROUP_ID = '120363425281087335@g.us'
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+
+print("--- אתחול שרת רשימת קניות ---")
 
 # הגדרת Gemini
 if GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         model = genai.GenerativeModel('gemini-1.5-flash')
-        print("✅ מפתח AI זוהה והתחבר בהצלחה")
+        print("🚀 מערכת ה-AI הופעלה בהצלחה")
     except Exception as e:
-        print(f"❌ שגיאה בחיבור ל-Gemini: {e}")
+        print(f"❌ שגיאה בהפעלת Gemini: {e}")
 else:
-    print("⚠️ אזהרה: לא נמצא מפתח GEMINI_API_KEY ב-Variables!")
+    print("⚠️ אזהרה: לא נמצא GEMINI_API_KEY במערכת!")
 
 CATEGORY_ORDER = [
     'יבשים ושימורים', 'מוצרי חלב וביצים', 'בשר ודגים', 'פירות וירקות',
@@ -32,6 +29,7 @@ CATEGORY_ORDER = [
     'פארם והיגיינה', 'כללי/אחר'
 ]
 
+# --- בסיס נתונים ---
 def init_db():
     conn = sqlite3.connect('shopping.db')
     c = conn.cursor()
@@ -42,37 +40,37 @@ def init_db():
 
 init_db()
 
+# --- לוגיקת AI לניתוח הודעה ---
 def analyze_message_with_ai(text):
-    print(f"🔍 ניתוח הודעה: {text}")
+    print(f"🔍 AI מנתח עכשיו: {text}")
     
     prompt = f"""
-    אתה עוזר קניות חכם. תפקידך להחזיר רשימת JSON של מוצרים.
-    חוקים:
-    1. פצל מוצרים: אם כתוב 'חלב ולחם', אלו שני מוצרים נפרדים.
-    2. נקה מילים: הסר 'תביא', 'רק', 'בבקשה', 'אל תשכח'.
-    3. הסר ו' החיבור: 'ורסק' הופך ל-'רסק'.
-    4. קטגוריות מותרות: {', '.join(CATEGORY_ORDER)}.
+    You are a Hebrew shopping list assistant. Convert messages into a JSON list of products.
+    RULES:
+    1. SPLIT: Every product must be a separate item. Split by commas and the letter 'ו' (vav).
+    2. CLEAN: Remove prefixes like 'תביא', 'רק', 'בבקשה', 'אל תשכח'.
+    3. NO 'VAV': Never start a product name with 'ו'. 'ורסק' must become 'רסק'.
+    4. CATEGORIES: Choose ONLY from: {', '.join(CATEGORY_ORDER)}.
     
-    טקסט: "{text}"
-    פורמט פלט: [{"name": "שם המוצר", "category": "קטגוריה"}]
+    Text: "{text}"
+    Output: [{"name": "item", "category": "cat"}]
     """
     
     try:
         response = model.generate_content(prompt)
         raw_text = response.text.strip()
-        # ניקוי פורמט JSON
         if "```json" in raw_text:
             raw_text = raw_text.split("```json")[1].split("```")[0].strip()
         elif "```" in raw_text:
             raw_text = raw_text.split("```")[1].split("```")[0].strip()
             
-        print(f"🤖 AI ענה: {raw_text}")
+        print(f"🤖 תשובת AI: {raw_text}")
         return json.loads(raw_text)
     except Exception as e:
-        print(f"❌ תקלה ב-AI: {e}")
-        # גיבוי ידני
-        parts = text.replace(' ו', ',').split(',')
-        return [{"name": p.strip(), "category": "כללי/אחר"} for p in parts if p.strip()]
+        print(f"❌ שגיאת AI: {e}")
+        return [{"name": p.strip(), "category": "כללי/אחר"} for p in text.split(',') if p.strip()]
+
+# --- נתיבי האתר ---
 
 @app.route('/')
 def index():
@@ -103,15 +101,15 @@ def add_item():
 @app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.get_json()
+    print(f"📩 הודעה נכנסת: {data}")
+    
     try:
-        if data.get('typeWebhook') == 'incomingMessageReceived':
+        if 'messageData' in data and 'textMessageData' in data['messageData']:
+            full_text = data['messageData']['textMessageData']['textMessage']
             chat_id = data['senderData']['chatId']
+            
             if chat_id == ALLOWED_GROUP_ID:
-                full_text = data['messageData']['textMessageData']['textMessage']
-                print(f"📩 וואטסאפ: {full_text}")
-                
                 items = analyze_message_with_ai(full_text)
-                
                 if items:
                     conn = sqlite3.connect('shopping.db')
                     c = conn.cursor()
@@ -119,9 +117,10 @@ def webhook():
                         c.execute("INSERT INTO items (name, category, status) VALUES (?, ?, 0)", (item['name'], item['category']))
                     conn.commit()
                     conn.close()
-                    print(f"✅ נוספו {len(items)} מוצרים")
+                    print(f"✅ נוספו {len(items)} מוצרים.")
     except Exception as e:
         print(f"❌ שגיאה: {e}")
+        
     return jsonify({"status": "success"}), 200
 
 @app.route('/toggle/<int:item_id>')
