@@ -52,7 +52,7 @@ def send_whatsapp(phone, text):
 
 @app.route('/webhook', methods=['POST', 'GET'])
 def woocommerce_webhook():
-    if request.method == "GET": return "e-go Data-Optimizer v12 Online", 200
+    if request.method == "GET": return "e-go Final-Fix v15 Online", 200
     
     data = request.get_json(silent=True)
     if not data or data.get("status") != "completed": return "OK", 200
@@ -82,20 +82,16 @@ def woocommerce_webhook():
         for i in range(len(all_iccids)):
             iccid = all_iccids[i]
             code = all_codes[i] if i < len(all_codes) else ""
-            
             product_name = items[i].get("name", "") if i < len(items) else "חבילת eSIM"
             is_reload = any(word in product_name.lower() for word in ["טעינ", "top up", "topup", "reload"])
-
             smart_link = f"https://e-go.co.il/check-package-details/?iccid={iccid}"
 
             if is_reload:
-                # --- הודעת טעינה ---
                 msg += f"🔄 *עדכון חבילה (טעינה):*\n"
                 msg += f"החבילה הוטענה בהצלחה ל-ICCID:\n`{iccid}`\n\n"
-                msg += "החבילה מעודכנת כעת במכשירך. **אין צורך בהתקנה מחדש**.\n"
-                msg += "💡 *טיפ:* במידה והחבילה לא מופיעה מיד, העבר למצב טיסה ל-5 שניות והחזר.\n\n"
+                msg += "החבילה מעודכנת כעת במכשירך. *אין צורך בהתקנה מחדש*.\n"
+                msg += "💡 *טיפ:* במידה והחבילה לא מופיעה, העבירו למצב טיסה ל-5 שניות והחזירו.\n\n"
             else:
-                # --- הודעת חבילה חדשה ---
                 msg += f"📦 *פרטי ה-eSIM החדש שלך:*\n"
                 msg += f"מס' ה-ICCID:\n`{iccid}`\n\n"
                 if code:
@@ -110,19 +106,19 @@ def woocommerce_webhook():
             if len(all_iccids) > 1:
                 msg += "--------------------------\n\n"
 
-        # --- הוראות שמירה על החבילה ---
-        msg += "📵 **שמירה על חבילת הגלישה (למשתמשי אייפון):**\n"
-        msg += "כדי לנצל את החבילה לגלישה נטו ולמנוע צריכה מיותרת ברקע, הגדירו במכשיר:\n"
-        msg += "**הגדרות** > **סלולרי** > גוללים עד הסוף למטה ו**מכבים** את:\n"
-        msg += "1. **iCloud Drive**\n"
-        msg += "2. **גיבוי iCloud**\n\n"
-        msg += "✅ *אל דאגה -* הגיבויים ימשיכו להתבצע אוטומטית בכל פעם שתתחברו ל-Wi-Fi.\n\n"
+        # --- תיקון יישור לימין (v15) ---
+        msg += "*📵 שמירה על חבילת הגלישה (אייפון):*\n"
+        msg += "כדי לנצל את החבילה לגלישה נטו, הגדירו במכשיר:\n"
+        msg += "*הגדרות* > *סלולרי* > גלילה לסוף למטה וכיבוי של:\n"
+        msg += "1️⃣ כיבוי של *iCloud Drive*\n"
+        msg += "2️⃣ כיבוי של *גיבוי iCloud*\n\n"
+        msg += "✅ *אל דאגה -* הגיבויים יתבצעו אוטומטית ב-Wi-Fi.\n\n"
 
         msg += "---\n📍 *מידע חשוב:*\n"
         msg += "⚠️ במהלך ההתקנה נא לא לבצע הסרת חבילה.\n"
-        msg += "📍 להתקנה, יש לסרוק את הברקוד שנשלח במייל.\n"
-        msg += "🍎 *מדריכים:* https://did.li/ego-iphone-install\n"
-        msg += "🤖 *מדריכים:* https://did.li/ego-android-install\n\n"
+        msg += "📍 להתקנה, יש לסרוק את הברקוד שנשלח במייל.\n\n"
+        msg += "🍎 *מדריך לאייפון:* https://did.li/ego-iphone-install\n"
+        msg += "🤖 *מדריך לאנדרואיד:* https://did.li/ego-android-install\n\n"
         msg += "❓ לתמיכה טכנית בווטסאפ: 08:00-22:00\n\n"
         msg += "נסיעה טובה🌴\nצוות e-go"
 
