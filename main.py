@@ -14,7 +14,6 @@ GREEN_API_TOKEN = "22e83562ef1e46588d0d393232ed1ad441a8e941990646e09a"
 SEND_MSG_URL = f"https://7103.api.greenapi.com/waInstance{GREEN_API_ID}/sendMessage/{GREEN_API_TOKEN}"
 
 logging.basicConfig(level=logging.INFO)
-
 DB_PATH = "/app/data/orders_db.sqlite"
 
 def init_db():
@@ -52,7 +51,7 @@ def send_whatsapp(phone, text):
 
 @app.route('/webhook', methods=['POST', 'GET'])
 def woocommerce_webhook():
-    if request.method == "GET": return "e-go Final-Fix v15 Online", 200
+    if request.method == "GET": return "e-go Smart-Detect v17 Online", 200
     
     data = request.get_json(silent=True)
     if not data or data.get("status") != "completed": return "OK", 200
@@ -67,9 +66,15 @@ def woocommerce_webhook():
         if phone.startswith("0"): phone = "972" + phone[1:]
         elif not phone.startswith("972"): phone = "972" + phone
 
-        full_dump = json.dumps(data)
+        # תיקון קריטי: הפיכת הנתונים לטקסט עם תמיכה בעברית (ensure_ascii=False)
+        full_dump = json.dumps(data, ensure_ascii=False).lower()
+        
+        # זיהוי טעינה - בדיקה רחבה על כל ההזמנה
+        is_order_reload = any(word in full_dump for word in ["טעינ", "top up", "topup", "reload"])
+        
+        # זיהוי ICCID וקוד K2
         all_iccids = list(dict.fromkeys(re.findall(r'89\d{16,18}', full_dump)))
-        all_codes = list(dict.fromkeys(re.findall(r'K2-[A-Z0-9-]+', full_dump)))
+        all_codes = list(dict.fromkeys(re.findall(r'k2-[a-z0-9-]+', full_dump)))
 
         if not all_iccids: return "OK", 200
 
@@ -77,25 +82,23 @@ def woocommerce_webhook():
         msg += f"תודה על הזמנתך ב- *e-go* 🙏🏼\n"
         msg += f"מספר הזמנתך: {order_id}\n\n"
 
-        items = data.get("line_items", [])
-        
         for i in range(len(all_iccids)):
             iccid = all_iccids[i]
             code = all_codes[i] if i < len(all_codes) else ""
-            product_name = items[i].get("name", "") if i < len(items) else "חבילת eSIM"
-            is_reload = any(word in product_name.lower() for word in ["טעינ", "top up", "topup", "reload"])
             smart_link = f"https://e-go.co.il/check-package-details/?iccid={iccid}"
 
-            if is_reload:
+            if is_order_reload:
+                # --- הודעת טעינה (Reload) ---
                 msg += f"🔄 *עדכון חבילה (טעינה):*\n"
                 msg += f"החבילה הוטענה בהצלחה ל-ICCID:\n`{iccid}`\n\n"
                 msg += "החבילה מעודכנת כעת במכשירך. *אין צורך בהתקנה מחדש*.\n"
                 msg += "💡 *טיפ:* במידה והחבילה לא מופיעה, העבירו למצב טיסה ל-5 שניות והחזירו.\n\n"
             else:
+                # --- הודעת חבילה חדשה (New eSIM) ---
                 msg += f"📦 *פרטי ה-eSIM החדש שלך:*\n"
                 msg += f"מס' ה-ICCID:\n`{iccid}`\n\n"
                 if code:
-                    lpa = f"LPA:1$smdp.io${code}"
+                    lpa = f"lpa:1$smdp.io${code.upper().replace('K2-', '')}"
                     msg += "🚀 *התקנה מהירה בלחיצה:*\n"
                     msg += f"📱 Apple: https://esimsetup.apple.com/esim_qrcode_provisioning?carddata={lpa}\n"
                     msg += f"📱 Android: https://esimsetup.android.com/esim_qrcode_provisioning?carddata={lpa}\n\n"
@@ -106,19 +109,20 @@ def woocommerce_webhook():
             if len(all_iccids) > 1:
                 msg += "--------------------------\n\n"
 
-        # --- תיקון יישור לימין (v15) ---
-        msg += "*📵 שמירה על חבילת הגלישה (אייפון):*\n"
-        msg += "כדי לנצל את החבילה לגלישה נטו, הגדירו במכשיר:\n"
-        msg += "*הגדרות* > *סלולרי* > גלילה לסוף למטה וכיבוי של:\n"
-        msg += "1️⃣ כיבוי של *iCloud Drive*\n"
-        msg += "2️⃣ כיבוי של *גיבוי iCloud*\n\n"
-        msg += "✅ *אל דאגה -* הגיבויים יתבצעו אוטומטית ב-Wi-Fi.\n\n"
+        # --- הוראות שמירה על החבילה (עם יישור RTL) ---
+        rtl = "\u200f"
+        msg += f"*{rtl}📵 שמירה על חבילת הגלישה (אייפון):*\n"
+        msg += f"{rtl}כדי לנצל את החבילה לגלישה נטו, הגדירו במכשיר:\n"
+        msg += f"{rtl}*הגדרות* > *סלולרי* > גלילה לסוף למטה וכיבוי של:\n"
+        msg += f"{rtl}1️⃣ כיבוי של *iCloud Drive*\n"
+        msg += f"{rtl}2️⃣ כיבוי של *גיבוי iCloud*\n\n"
+        msg += f"{rtl}✅ *אל דאגה -* הגיבויים יתבצעו אוטומטית ב-Wi-Fi.\n\n"
 
         msg += "---\n📍 *מידע חשוב:*\n"
         msg += "⚠️ במהלך ההתקנה נא לא לבצע הסרת חבילה.\n"
         msg += "📍 להתקנה, יש לסרוק את הברקוד שנשלח במייל.\n\n"
-        msg += "🍎 *מדריך לאייפון:* https://did.li/ego-iphone-install\n"
-        msg += "🤖 *מדריך לאנדרואיד:* https://did.li/ego-android-install\n\n"
+        msg += f"{rtl}🍎 *מדריך לאייפון:* https://did.li/ego-iphone-install\n"
+        msg += f"{rtl}🤖 *מדריך לאנדרואיד:* https://did.li/ego-android-install\n\n"
         msg += "❓ לתמיכה טכנית בווטסאפ: 08:00-22:00\n\n"
         msg += "נסיעה טובה🌴\nצוות e-go"
 
