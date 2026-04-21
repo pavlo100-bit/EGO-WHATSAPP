@@ -48,7 +48,7 @@ def forget_order(order_id):
         conn.execute("DELETE FROM processed_orders WHERE order_id = ?", (order_id,))
         conn.commit()
         conn.close()
-        return f"Order {order_id} forgotten.", 200
+        return f"Order {order_id} forgotten. You can now resend it.", 200
     except Exception as e:
         return f"Error: {e}", 500
 
@@ -82,7 +82,7 @@ def woocommerce_webhook():
         is_order_reload = any(word in full_dump for word in ["טעינ", "top up", "topup", "reload"])
         
         all_iccids = list(dict.fromkeys(re.findall(r'89\d{16,18}', full_dump)))
-        # מחפש קודים שמתחילים ב-K2
+        # חיפוש קוד ה-K2 במלואו
         all_codes = list(dict.fromkeys(re.findall(r'k2-[a-z0-9-]+', full_dump)))
 
         if not all_iccids: return "OK", 200
@@ -93,10 +93,10 @@ def woocommerce_webhook():
 
         if is_order_reload:
             msg += "🔄 *עדכון חבילה (טעינה):*\n"
-            msg += "החבילה הוטענה בהצלחה למספרי ה-ICCID הבאים:\n"
+            msg += "החבילה הוטענה בהצלחה ל-ICCID הבאים:\n"
             for iccid in all_iccids:
                 msg += f"• `{iccid}`\n"
-            msg += "\nהחבילה מעודכנת כעת במכשירכם. *אין צורך בהתקנה מחדש*.\n"
+            msg += "\nהחבילה מעודכנת כעת במכשירך. *אין צורך בהתקנה מחדש*.\n"
             msg += "💡 *טיפ:* במידה והחבילה לא מופיעה, העבירו למצב טיסה ל-5 שניות והחזירו.\n\n"
         else:
             for i, iccid in enumerate(all_iccids):
@@ -104,7 +104,7 @@ def woocommerce_webhook():
                 msg += f"📦 *פרטי ה-eSIM החדש שלך:*\n"
                 msg += f"מס' ה-ICCID: `{iccid}`\n"
                 if code:
-                    # שינוי כאן: השארת הקוד המלא כולל K2
+                    # התיקון: שימוש בקוד המלא כפי שהוא (כולל K2)
                     lpa_data = f"LPA:1$smdp.io${code.upper()}"
                     msg += "🚀 *התקנה מהירה בלחיצה:*\n"
                     msg += f"📱 Apple: https://esimsetup.apple.com/esim_qrcode_provisioning?carddata={lpa_data}\n"
