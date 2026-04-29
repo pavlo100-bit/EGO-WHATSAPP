@@ -62,7 +62,7 @@ def send_whatsapp(phone, text):
 
 @app.route('/webhook', methods=['POST', 'GET'])
 def woocommerce_webhook():
-    if request.method == "GET": return "e-go Perfect-Reload v22 Online", 200
+    if request.method == "GET": return "e-go Pro-Direct v24 Online", 200
     
     data = request.get_json(silent=True)
     if not data or data.get("status") != "completed": return "OK", 200
@@ -90,21 +90,25 @@ def woocommerce_webhook():
         msg += f"תודה על הזמנתך ב- *e-go* 🙏🏼\n"
         msg += f"מספר הזמנתך: {order_id}\n\n"
 
+        # --- בלוק חשוב מאוד (עם המילה "יש") ---
+        msg += "📍 *חשוב מאוד:*\n"
+        if not is_order_reload:
+            msg += "יש לבצע את ההתקנה **כבר עכשיו בארץ** כדי להגיע לנחיתה מוכנים. מצורפים למטה לינקים להתקנה מהירה בלחיצה אחת.\n\n"
+        else:
+            msg += "החבילה הוטענה ישירות ל-eSIM הקיים במכשירכם. אין צורך לסרוק ברקוד נוסף.\n\n"
+
+        msg += "✅ *אל דאגה:*\n"
+        msg += "תוקף החבילה מתחיל להיספר **רק מרגע הנחיתה והחיבור לרשת בחו\"ל**, ולא מרגע הרכישה או ההתקנה.\n\n"
+
         if is_order_reload:
-            # --- נוסח טעינה מתוקן ---
             msg += "🔄 *עדכון חבילה (טעינה):*\n"
-            msg += "החבילה הוטענה בהצלחה ל-ICCID הבאים:\n"
             for iccid in all_iccids:
                 msg += f"• `{iccid}`\n"
-            
-            msg += "\nהחבילה מעודכנת כעת במכשירכם. *אין צורך בהתקנה מחדש*.\n"
-            msg += "💡 *טיפ:* במידה והחבילה לא מופיעה, העבירו למצב טיסה ל-5 שניות והחזירו.\n\n"
-            
+            msg += "\n💡 *טיפ:* במידה והחבילה לא מופיעה בנחיתה, העבירו למצב טיסה ל-5 שניות והחזירו.\n\n"
             msg += "✅ *בדיקת יתרה מעודכנת:* \n"
             for iccid in all_iccids:
                 msg += f"https://e-go.co.il/check-package-details/?iccid={iccid}\n"
         else:
-            # --- נוסח eSIM חדש ---
             for i, iccid in enumerate(all_iccids):
                 code = all_codes[i] if i < len(all_codes) else ""
                 msg += f"📦 *פרטי ה-eSIM החדש שלך:*\n"
@@ -127,15 +131,11 @@ def woocommerce_webhook():
         msg += f"{rtl}2️⃣ כיבוי של *גיבוי iCloud*\n\n"
         msg += f"{rtl}✅ *אל דאגה -* הגיבויים יתבצעו אוטומטית ב-Wi-Fi.\n\n"
 
-        # --- מידע חשוב (דינמי) ---
         msg += "---\n📍 *מידע חשוב:*\n"
-        
         if not is_order_reload:
             msg += "⚠️ במהלך ההתקנה נא לא לבצע הסרת חבילה.\n"
-            msg += "📍 להתקנה, יש לסרוק את הברקוד שנשלח במייל.\n"
-        else:
-            msg += "📍 החבילה תופעל אוטומטית עם הנחיתה ביעד.\n"
-
+            msg += "📍 להתקנה ידנית, יש לסרוק את הברקוד שנשלח במייל.\n"
+        
         msg += f"\n{rtl}🍎 *מדריך לאייפון:* https://did.li/ego-iphone-install\n"
         msg += f"{rtl}🤖 *מדריך לאנדרואיד:* https://did.li/ego-android-install\n\n"
         msg += "❓ לתמיכה טכנית בווטסאפ: 08:00-22:00\n\n"
